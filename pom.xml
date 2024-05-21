@@ -24,7 +24,6 @@
         <mybatis-plus-boot-starter.version>3.5.3.1</mybatis-plus-boot-starter.version>
         <hutool.version>5.8.25</hutool.version>
         <knife4j-openapi3.version>4.3.0</knife4j-openapi3.version>
-        <user-api.version>DEV-SNAPSHOT</user-api.version>
         <spring-authorization-server.version>1.2.4</spring-authorization-server.version>
     </properties>
 
@@ -51,12 +50,12 @@
             <dependency>
                 <groupId>indi.haorui</groupId>
                 <artifactId>security-client</artifactId>
-                <version>0.0.1-SNAPSHOT</version>
+                <version>${revision}</version>
             </dependency>
             <dependency>
                 <groupId>indi.haorui</groupId>
                 <artifactId>security-server</artifactId>
-                <version>0.0.1-SNAPSHOT</version>
+                <version>${revision}</version>
             </dependency>
 
 
@@ -79,18 +78,12 @@
                 <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
                 <version>${knife4j-openapi3.version}</version>
             </dependency>
-
+            <!-- https://mvnrepository.com/artifact/org.quartz-scheduler/quartz -->
             <dependency>
-                <groupId>software.amazon.awssdk</groupId>
-                <artifactId>dynamodb</artifactId>
-                <version>2.20.24</version>
+                <groupId>org.quartz-scheduler</groupId>
+                <artifactId>quartz</artifactId>
+                <version>2.3.2</version>
             </dependency>
-            <dependency>
-                <groupId>software.amazon.awssdk</groupId>
-                <artifactId>dynamodb-enhanced</artifactId>
-                <version>2.20.24</version>
-            </dependency>
-
         </dependencies>
     </dependencyManagement>
 
