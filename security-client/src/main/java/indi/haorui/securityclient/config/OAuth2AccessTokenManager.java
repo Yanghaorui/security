@@ -27,9 +27,12 @@ public class OAuth2AccessTokenManager {
     }
 
     public String authorize(String registrationId) {
-        String token = AccessTokenRenovator.get(registrationId);
-        if (StrUtil.isNotBlank(token)) {
-            return token;
+        OAuth2AccessToken accessToken = AccessTokenRenovator.get(registrationId);
+        if (Objects.isNull(accessToken)){
+            return null;
+        }
+        if (StrUtil.isNotBlank(accessToken.getTokenValue())) {
+            return accessToken.getTokenValue();
         }
         OAuth2AccessToken oAuth2AccessToken = AccessTokenRenovator.register(registrationId,
                 this::authorizeToken);

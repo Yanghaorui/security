@@ -1,5 +1,7 @@
 package indi.haorui.securityclient.config;
 
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.quartz.*;
 import org.quartz.impl.StdSchedulerFactory;
@@ -10,18 +12,22 @@ import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 
 /**
- * Created by Yang Hao.rui on 2024/2/21
+ * Created by Yang Hao.rui on 2024/5/29
  * <p>
  * Token刷新器， 将Token有效时长的3/4作为刷新时间
  */
 @Slf4j
+@Getter
 public class AccessTokenRenovator {
 
     private static final Scheduler SCHEDULER;
-    
+
+    private static final Map<String, ReentrantLock> LOCK_MAP = new ConcurrentHashMap<>();
+
     /*
      * 通过静态代码块初始化调度器
      */
@@ -34,38 +40,86 @@ public class AccessTokenRenovator {
         }
     }
 
-    private static final Map<String, OAuth2AccessToken> ACCESS_TOKENS = new ConcurrentHashMap<>();
+    private static final Map<String, AccessTokenRenovator> RENOVATOR_MAP = new ConcurrentHashMap<>();
 
-    public static OAuth2AccessToken register(String registrationId, Function<String, OAuth2AccessToken> execute) {
-        OAuth2AccessToken accessToken = execute.apply(registrationId);
-        int interval = interval(accessToken);
-        newJob(registrationId, interval, execute);
-        ACCESS_TOKENS.put(registrationId, accessToken);
-        return accessToken;
-    }
 
-    public static String get(String registrationId) {
-        OAuth2AccessToken accessToken = ACCESS_TOKENS.get(registrationId);
+    private final Function<String, OAuth2AccessToken> execute;
+
+    @Setter
+    private OAuth2AccessToken accessToken;
+
+    private OAuth2AccessToken getAccessToken() {
         if (Objects.nonNull(accessToken) && Objects.nonNull(accessToken.getExpiresAt())
                 && accessToken.getExpiresAt().isAfter(Instant.now())) {
-            return accessToken.getTokenValue();
+            return accessToken;
+        }
+        return null;
+    }
+
+
+    private AccessTokenRenovator(String registrationId, Function<String, OAuth2AccessToken> execute) {
+        this.execute = execute;
+        this.accessToken = execute.apply(registrationId);
+        if (Objects.isNull(accessToken)) {
+            log.error("Failed to renovate {} token, retry later", registrationId);
+        }
+        int interval = interval(accessToken);
+        newJob(registrationId, interval);
+        RENOVATOR_MAP.put(registrationId, this);
+    }
+    /**
+     * 注册到Schedule 并且返回一个token
+     * <p>根据registrationId 加锁，防止并发请求时，重复创建任务
+     * <p>对于同一个registrationId,只会创建一个任务
+     * @param registrationId 注册id
+     * @param execute 获取token的方法
+     * @return OAuth2AccessToken
+     */
+    public static OAuth2AccessToken register(String registrationId, Function<String, OAuth2AccessToken> execute) {
+        // 尝试从缓存中获取
+        AccessTokenRenovator accessTokenRenovator = RENOVATOR_MAP.get(registrationId);
+        if (Objects.nonNull(accessTokenRenovator) && Objects.nonNull(accessTokenRenovator.getAccessToken())) {
+            return accessTokenRenovator.getAccessToken();
+        }
+        // 根据registrationId 加锁，防止并发请求时，重复创建任务
+        ReentrantLock lock = LOCK_MAP.computeIfAbsent(registrationId, k -> new ReentrantLock());
+        lock.lock();
+        try {
+            // 锁中再次尝试从缓存中获取
+            accessTokenRenovator = RENOVATOR_MAP.get(registrationId);
+            if (Objects.nonNull(accessTokenRenovator) && Objects.nonNull(accessTokenRenovator.getAccessToken())) {
+                return accessTokenRenovator.getAccessToken();
+            }
+            // 创建一个新的任务，并返回token（在创建任务时会去获取token）
+            accessTokenRenovator = new AccessTokenRenovator(registrationId, execute);
+            return accessTokenRenovator.getAccessToken();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public static OAuth2AccessToken get(String registrationId) {
+        AccessTokenRenovator accessTokenRenovator = RENOVATOR_MAP.get(registrationId);
+        if (Objects.isNull(accessTokenRenovator)) {
+            return null;
+        }
+        OAuth2AccessToken accessToken = accessTokenRenovator.getAccessToken();
+        if (Objects.nonNull(accessToken) && Objects.nonNull(accessToken.getExpiresAt())
+                && accessToken.getExpiresAt().isAfter(Instant.now())) {
+            return accessToken;
         }
         return null;
     }
 
     /**
      * 创建一个新的任务
-     *
      */
-    private static void newJob(String registrationId, int interval, Function<String, OAuth2AccessToken> function) {
+    private static void newJob(String registrationId, int interval) {
         SimpleScheduleBuilder rule = SimpleScheduleBuilder.simpleSchedule()
                 .withIntervalInSeconds(interval)
                 .repeatForever();
-        JobDataMap jobDataMap = new JobDataMap(
-                Map.of("registrationId", registrationId, "interval", interval, "function", function)
-        );
         JobKey jobKey = jobKey(registrationId);
-        JobDetail build = JobBuilder.newJob(Looper.class).usingJobData(jobDataMap).withIdentity(jobKey).build();
+        JobDetail build = JobBuilder.newJob(Looper.class).withIdentity(jobKey).build();
         SimpleTrigger simpleTrigger = TriggerBuilder.newTrigger()
                 .withIdentity("trigger@" + registrationId)
                 .withSchedule(rule)
@@ -75,11 +129,9 @@ public class AccessTokenRenovator {
             /*
              * 如果任务已经存在，删除任务
              */
-            if (SCHEDULER.checkExists(jobKey)) {
-                SCHEDULER.deleteJob(jobKey);
-            }
+            deleteJob(registrationId);
             SCHEDULER.scheduleJob(build, simpleTrigger);
-        } catch (SchedulerException e){
+        } catch (SchedulerException e) {
             log.error("Failed to create a new token job", e);
         }
     }
@@ -91,17 +143,33 @@ public class AccessTokenRenovator {
 
     /**
      * 根据token的过期时间计算刷新时间  过期时间的四分之三
-     * 默认 10 分钟
+     * 默认 5 分钟
+     * <p> 如果token为null, 则返回 10秒钟
+     *
      * @return token 刷新时间 单位: s
      */
     private static int interval(OAuth2AccessToken oAuth2AccessToken) {
+        if (Objects.isNull(oAuth2AccessToken)) {
+            return 10 * 60;
+        }
         Instant issuedAt = oAuth2AccessToken.getIssuedAt();
         Instant expiresAt = oAuth2AccessToken.getExpiresAt();
         if (Objects.nonNull(expiresAt) && Objects.nonNull(issuedAt)) {
             long until = issuedAt.until(expiresAt, ChronoUnit.SECONDS);
             return (int) (until * 3 / 4);
         }
-        return 10 * 60 * 60;
+        return 5 * 60 * 60;
+    }
+
+    private static void deleteJob(String registrationId) {
+        try {
+            JobKey jobKey = jobKey(registrationId);
+            if (SCHEDULER.checkExists(jobKey)) {
+                SCHEDULER.deleteJob(jobKey);
+            }
+        } catch (SchedulerException e) {
+            log.error("Failed to delete job", e);
+        }
     }
 
     /**
@@ -113,18 +181,21 @@ public class AccessTokenRenovator {
          * @param context 任务执行上下文
          */
         @Override
-        @SuppressWarnings("unchecked")
         public void execute(JobExecutionContext context) {
-            JobDataMap mergedJobDataMap = context.getMergedJobDataMap();
-            int currentInterval = mergedJobDataMap.getInt("interval");
-            String registrationId = mergedJobDataMap.getString("registrationId");
-            Function<String, OAuth2AccessToken> function = (Function<String, OAuth2AccessToken>) mergedJobDataMap.get("function");
-            OAuth2AccessToken accessToken = function.apply(registrationId);
+            String registrationId = context.getJobDetail().getKey().getName();
+            AccessTokenRenovator accessTokenRenovator = RENOVATOR_MAP.get(registrationId);
+            if(Objects.isNull(accessTokenRenovator)){
+                deleteJob(registrationId);
+            }
+            // 获取当前token的刷新时间
+            int currentInterval = interval(accessTokenRenovator.getAccessToken());
+            OAuth2AccessToken accessToken = accessTokenRenovator.getExecute().apply(registrationId);
             if (Objects.isNull(accessToken)) {
                 log.error("Failed to renovate {} token", registrationId);
                 return;
             }
-            ACCESS_TOKENS.put(registrationId, accessToken);
+            accessTokenRenovator.setAccessToken(accessToken);
+            // 获取新的token的刷新时间
             int newInterval = interval(accessToken);
             /*
              * 如果token的过期时长发生变化，根据刷新时间重新创建任务
@@ -133,7 +204,7 @@ public class AccessTokenRenovator {
             if (currentInterval == newInterval) {
                 return;
             }
-            newJob(registrationId, newInterval, function);
+            newJob(registrationId, newInterval);
             log.info("Renovate {} interval from {} to {}", registrationId, currentInterval, newInterval);
         }
     }
