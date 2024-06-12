@@ -1,0 +1,37 @@
+server:
+  port: 9001
+
+logging:
+  level:
+    org.springframework.security: trace
+
+jwt:
+  keys:
+    - id: abcd
+      priv: classpath:key-pair/private1.key
+      pub: classpath:key-pair/public1.pub
+    - id: efgh
+      priv: classpath:key-pair/private2.key
+      pub: classpath:key-pair/public2.pub
+
+spring:
+  security:
+    oauth2:
+      authorizationserver:
+        client:
+          messaging-client:
+            registration:
+              client-id: "messaging-client"
+              client-secret: "{noop}secret"
+              client-authentication-methods:
+                - "client_secret_basic"
+              authorization-grant-types:
+                - "client_credentials"
+              scopes:
+                - "pii:read"
+                - "write"
+                - "basic:read"
+            require-authorization-consent: true
+        issuer: http://localhost:9001
+        endpoint:
+          jwk-set-uri: /oauth2/jwks

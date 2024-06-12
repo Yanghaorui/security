@@ -1,3 +1,21 @@
+server:
+  port: 9001
 spring:
   application:
     name: security-client
+  security:
+    oauth2:
+      client:
+        registration:
+          authorization-server:
+            provider: authorization-server
+            client-id: client-id
+            client-secret: client-secret
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/authorized/authorization-server"
+            scope: message.read,message.write
+        provider:
+          authorization-server:
+            authorization-uri: http://localhost:9000/oauth2/v1/authorize
+            token-uri: http://localhost:9000/oauth2/v1/token
+#            issuer-uri: http://localhost:9000

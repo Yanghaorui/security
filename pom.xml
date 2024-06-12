@@ -16,7 +16,8 @@
     <description>security</description>
     <modules>
         <module>security-client</module>
-        <module>security-server</module>
+        <module>resource-server</module>
+        <module>authorization-server</module>
     </modules>
     <properties>
         <revision>0.0.1-SNAPSHOT</revision>
@@ -54,7 +55,7 @@
             </dependency>
             <dependency>
                 <groupId>indi.haorui</groupId>
-                <artifactId>security-server</artifactId>
+                <artifactId>resource-server</artifactId>
                 <version>${revision}</version>
             </dependency>
 

@@ -1,0 +1,15 @@
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://my-auth-server.com
+          public-key-location: classpath:my-public-key.pub
+
+  application:
+    name: security-server
+server:
+  port: 8088
+logging:
+  level:
+    root: debug
