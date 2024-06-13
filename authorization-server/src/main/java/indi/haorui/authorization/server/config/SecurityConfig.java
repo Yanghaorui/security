@@ -1,12 +1,13 @@
 package indi.haorui.authorization.server.config;
 
-import com.nimbusds.jose.jwk.JWK;
-import com.nimbusds.jose.jwk.JWKSet;
-import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.KeySourceException;
+import com.nimbusds.jose.jwk.*;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 import indi.haorui.authorization.server.properties.RSAKeyProperties;
+import indi.haorui.authorization.server.repository.RedisOAuth2AuthorizationService;
+import indi.haorui.authorization.server.repository.po.OAuth2AuthorizationPO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.BeanDefinition;
@@ -14,6 +15,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Role;
 import org.springframework.core.annotation.Order;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -21,10 +23,17 @@ import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.client.InMemoryRegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
+import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 
@@ -112,10 +121,10 @@ public class SecurityConfig {
         return new ImmutableJWKSet<>(jwkSet);
     }
 
-    @Bean
-    public JwtDecoder jwtDecoder(KeyPair keyPair) {
-        return NimbusJwtDecoder.withPublicKey((RSAPublicKey) keyPair.getPublic()).build();
-    }
+//    @Bean
+//    public JwtDecoder jwtDecoder(KeyPair keyPair) {
+//        return NimbusJwtDecoder.withPublicKey((RSAPublicKey) keyPair.getPublic()).build();
+//    }
 
 //    @Bean
 //    public AuthorizationServerSettings providerSettings() {
@@ -133,6 +142,31 @@ public class SecurityConfig {
         // @formatter:on
 
         return new InMemoryUserDetailsManager(userDetails);
+    }
+
+    @Bean
+    public OAuth2AuthorizationService authorizationService(RedisTemplate<String, OAuth2AuthorizationPO> redisTemplate, RegisteredClientRepository registeredClientRepository) {
+        return new RedisOAuth2AuthorizationService(redisTemplate, registeredClientRepository);
+    }
+
+    /**
+     * 会注入到这里
+     * {@link org.springframework.security.oauth2.server.authorization.token.JwtGenerator.jwtCustomizer}
+     * context.getJwsHeader().keyId(jwks.get(0).getKeyID());
+     * 这里set的keyid 最后会通过{@linkplain org.springframework.security.oauth2.server.authorization.token.JwtGenerator }到
+     * {@link NimbusJwtEncoder#encode(JwtEncoderParameters)}
+     */
+    @Bean
+    public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer(JWKSource<SecurityContext> jwkSource){
+        return context -> {
+            JWKSelector jwkSelector = new JWKSelector(new JWKMatcher.Builder().build());
+            try {
+                List<JWK> jwks = jwkSource.get(jwkSelector, null);
+                context.getJwsHeader().keyId(jwks.get(1).getKeyID());
+            } catch (KeySourceException e) {
+                throw new RuntimeException(e);
+            }
+        };
     }
 
 }

@@ -1,30 +1,13 @@
 package indi.haorui.resource.server.config;
 
-import cn.hutool.crypto.PemUtil;
-import cn.hutool.crypto.asymmetric.RSA;
-import com.nimbusds.jose.crypto.impl.RSAKeyUtils;
-import indi.haorui.resource.server.filter.CustomizedAuthenticationFilter;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
-import org.springframework.boot.autoconfigure.security.oauth2.resource.OAuth2ResourceServerProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.io.Resource;
 import org.springframework.security.config.Customizer;
-import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtDecoders;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-
-import java.io.IOException;
-import java.security.PublicKey;
-import java.security.interfaces.RSAPublicKey;
 
 /**
  * Created by Yang Hao.rui on 2024/5/20
@@ -55,7 +38,7 @@ public class SecurityConfig {
 
     @Bean
     public JwtDecoder jwtDecoder() {
-        return JwtDecoders.fromIssuerLocation("https://my-auth-server.com");
+        return JwtDecoders.fromIssuerLocation("http://localhost:9001");
     }
 
     /*
